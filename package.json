@@ -1,0 +1,35 @@
+{
+  "name": "product-scanner-backend",
+  "version": "1.0.0",
+  "description": "TypeScript Express PostgreSQL Backend",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "nodemon src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@zxing/library": "^0.21.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.21.2",
+    "helmet": "^7.0.0",
+    "jsbarcode": "^3.12.1",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "sharp": "^0.34.3",
+    "tesseract.js": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.14",
+    "@types/express": "^4.17.17",
+    "@types/morgan": "^1.9.5",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^20.19.13",
+    "@types/pg": "^8.10.7",
+    "nodemon": "^3.0.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  }
+}
