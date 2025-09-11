@@ -6,7 +6,7 @@ import cv from "opencv4nodejs";
 /**
  * Compute similarity score between two images using SSIM.
  */
-export function compareImages(imagePath1:String, imagePath2:String) {
+export function compareImages(imagePath1:string, imagePath2:string) {
   const img1 = cv.imread(imagePath1).bgrToGray();
   const img2 = cv.imread(imagePath2).bgrToGray();
 

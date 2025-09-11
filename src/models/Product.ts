@@ -1,9 +1,26 @@
-export interface Product {
-  id: number;
-  name: string;
+
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from "typeorm";
+
+@Entity({ name: "products" })
+export class Product {
+  @PrimaryGeneratedColumn()
+  id!: number;
+
+  @Column({ type: "text" })
+  name!: string;
+
+  @Column({ type: "varchar", length: 255, unique: true, nullable: true })
   barcode?: string;
+
+  @Column({ type: "text", nullable: true })
   expected_verbage?: string;
-  expected_ingredients?: any; // JSONB type
+
+  @Column({ type: "jsonb", nullable: true })
+  expected_ingredients?: any;
+
+  @Column({ type: "text", nullable: true })
   reference_image_url?: string;
-  created_at: Date;
+
+  @CreateDateColumn({ type: "timestamp" })
+  created_at!: Date;
 }
