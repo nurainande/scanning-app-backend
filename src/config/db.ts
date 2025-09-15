@@ -36,4 +36,12 @@ const pool = new Pool({
   port: 5432,
 });
 
+export const connectDBB = async () => {
+  try {
+    
+  } catch (error) {
+    
+  }
+};
+
 export default pool;
