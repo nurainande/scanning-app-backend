@@ -19,6 +19,9 @@ import {decodeBarcode} from "./controllers/barcodeScanController";
 
 import userRoutes from "./routes/userRoute";
 
+import { verifyToken } from "./middleware/verifyToken";
+import { requireRole } from "./middleware/requireRole";
+
 const app: Application = express();
 const upload = multer({ dest: "uploads/" }); 
 
@@ -36,11 +39,10 @@ app.use(cookieParser());
 
 // routes
 app.use("/api/auth", userRoutes);      // <-- auth endpoints
-// app.use("/api/users", userRoutes);
 
 // ----------Product management endpoints----------
 // Create a new product
-app.post("/api/products", async (req, res) => {
+app.post("/api/products", verifyToken,requireRole('admin'), async (req, res) => {
   try {
     const { name, barcode, expected_verbage, expected_ingredients, reference_image_url } = req.body;
     
@@ -72,7 +74,7 @@ app.post("/api/products", async (req, res) => {
 });
 
 // Get all products
-app.get("/api/products", async (req, res) => {
+app.get("/api/products",verifyToken,requireRole('admin'), async (req, res) => {
   try {
     const productRepository = AppDataSource.getRepository(Product);
     const products = await productRepository.find();
@@ -133,7 +135,7 @@ app.post("/api/products/search-by-ingredients", async (req, res) => {
 });
 
 // Main processing endpoint
-app.post("/scan", upload.single("image"), async (req, res) => { 
+app.post("/api/scan", upload.single("image"), async (req, res) => { 
   try { 
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });

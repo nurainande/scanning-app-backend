@@ -42,10 +42,10 @@ export class User {
 
   @Column({
     type: "enum",
-    enum: ["attendant", "supervisor"],
+    enum: ["attendant", "supervisor","admin"],
     default: "attendant"
   })
-  role!: "attendant" | "supervisor";
+  role!: "attendant" | "supervisor" | "admin";
 
   @CreateDateColumn({ type: "timestamp" })
   created_at!: Date;

@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS scans (
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
-    role VARCHAR(50) CHECK(role IN ('attendant','supervisor')),
+    role VARCHAR(50) CHECK(role IN ('attendant','supervisor','admin')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
