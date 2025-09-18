@@ -8,8 +8,8 @@ export const AppDataSource = new DataSource({
   host: "localhost",
   port: 5432,
   username: "postgres",
-  password: process.env.DB_PASSWORD,
-  database: "oriondb",
+  password: "willythedev",
+  database: "labelscan",
   entities: [Product, Scan, User],
   synchronize: true, // Only for development - set to false in production
   logging: false,
@@ -31,7 +31,7 @@ import { Pool } from "pg";
 const pool = new Pool({
   user: "postgres",
   host: "localhost",
-  database: "oriondb",
+  database: "labelscan",
   password: process.env.DB_PASSWORD,
   port: 5432,
 });
