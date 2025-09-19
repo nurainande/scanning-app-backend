@@ -6,6 +6,7 @@ import multer from "multer";
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import cookieParser from "cookie-parser";
 import { connectDB, AppDataSource } from './config/db';
 import { Product } from './models/Product';
 import { Scan } from './models/Scan';
@@ -17,6 +18,9 @@ import {compareImages} from "./controllers/imageSimilarityController";
 import {decodeBarcode} from "./controllers/barcodeScanController";
 
 import userRoutes from "./routes/userRoute";
+
+import { verifyToken } from "./middleware/verifyToken";
+import { requireRole } from "./middleware/requireRole";
 
 const app: Application = express();
 const upload = multer({ dest: "uploads/" }); 
@@ -31,12 +35,14 @@ app.use(cors({ origin: `${process.env.CLIENT_URL}`, credentials: true }));
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());              
 
 // routes
-app.use("/api/users", userRoutes);
+app.use("/api/auth", userRoutes);      // <-- auth endpoints
 
-// Product management endpoints
-app.post("/api/products", async (req, res) => {
+// ----------Product management endpoints----------
+// Create a new product
+app.post("/api/products", verifyToken,requireRole('admin'), async (req, res) => {
   try {
     const { name, barcode, expected_verbage, expected_ingredients, reference_image_url } = req.body;
     
@@ -67,7 +73,8 @@ app.post("/api/products", async (req, res) => {
   }
 });
 
-app.get("/api/products", async (req, res) => {
+// Get all products
+app.get("/api/products",verifyToken,requireRole('admin'), async (req, res) => {
   try {
     const productRepository = AppDataSource.getRepository(Product);
     const products = await productRepository.find();
@@ -128,7 +135,7 @@ app.post("/api/products/search-by-ingredients", async (req, res) => {
 });
 
 // Main processing endpoint
-app.post("/scan", upload.single("image"), async (req, res) => { 
+app.post("/api/scan", upload.single("image"), async (req, res) => { 
   try { 
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
@@ -170,6 +177,7 @@ app.post("/scan", upload.single("image"), async (req, res) => {
       const allProducts = await productRepository.find({
         where: { expected_ingredients: Not(IsNull()) } // Only products with ingredients
       });
+      // console.log('allProducts',allProducts)
       
       ingredientMatches = TextComparisonService.findMatchingProductsByIngredients(
         ocrResult.text, 
@@ -335,6 +343,7 @@ const startServer = async () => {
   try {
     // Connect to database
     await connectDB();
+  
     
     // Start server
     app.listen(PORT, () => {
