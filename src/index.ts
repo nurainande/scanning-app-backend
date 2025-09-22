@@ -240,7 +240,66 @@ app.post("/api/scan/verbage", upload.single("image"), async (req, res) => {
   }
 });
 
-// Scan for barcode
+// Scan for barcode (client-side detected)
+app.post("/api/scan/barcode-data", async (req, res) => {
+  try {
+    const { barcode } = req.body;
+    
+    if (!barcode) {
+      return res.status(400).json({ error: "Barcode data is required" });
+    }
+
+    console.log("Processing barcode data:", barcode);
+    
+    let product: Product | null = null;
+    let discrepancyNotes: any[] = [];
+    
+    const productRepository = AppDataSource.getRepository(Product);
+    product = await productRepository.findOne({ 
+      where: { barcode: barcode } 
+    });
+    
+    if (!product) {
+      discrepancyNotes.push({
+        type: "product",
+        message: "Product not found in database for barcode"
+      });
+    }
+    
+    // Save scan results
+    const scanRepository = AppDataSource.getRepository(Scan);
+    const scan = new Scan();
+    scan.product_id = product?.id;
+    scan.barcode_scanned = barcode;
+    scan.discrepancy_notes = discrepancyNotes;
+    
+    const savedScan = await scanRepository.save(scan);
+    
+    const status = discrepancyNotes.length === 0 ? "matched" : "discrepancy";
+    
+    res.json({
+      status,
+      scan_id: savedScan.id,
+      product: product ? {
+        id: product.id,
+        name: product.name,
+        barcode: product.barcode
+      } : null,
+      barcode: barcode,
+      discrepancy_notes: discrepancyNotes,
+      timestamp: savedScan.created_at
+    });
+    
+  } catch (err) {
+    console.error("Barcode data processing error:", err);
+    res.status(500).json({
+      error: "Barcode data processing failed",
+      details: err instanceof Error ? err.message : "Unknown error"
+    });
+  }
+});
+
+// Scan for barcode (server-side detection)
 app.post("/api/scan/barcode", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -440,7 +499,8 @@ const startServer = async () => {
       console.log(`Search by ingredients: http://localhost:${PORT}/api/products/search-by-ingredients`);
       console.log(`Scan endpoints:`);
       console.log(`  - Verbage scan: http://localhost:${PORT}/api/scan/verbage`);
-      console.log(`  - Barcode scan: http://localhost:${PORT}/api/scan/barcode`);
+      console.log(`  - Barcode scan (server): http://localhost:${PORT}/api/scan/barcode`);
+      console.log(`  - Barcode scan (client): http://localhost:${PORT}/api/scan/barcode-data`);
       console.log(`  - Ingredients scan: http://localhost:${PORT}/api/scan/ingredients`);
     });
   } catch (error) {
