@@ -13,7 +13,7 @@ import { Scan } from './models/Scan';
 import { TextComparisonService } from './services/textComparisonService';
 import { Not, IsNull } from 'typeorm';
 
-import {tesseractOCR} from "./controllers/ocrServiceController";
+import {hybridOCR} from "./controllers/ocrServiceController";
 import {compareImages} from "./controllers/imageSimilarityController";
 import {decodeBarcode} from "./controllers/barcodeScanController";
 
@@ -134,166 +134,88 @@ app.post("/api/products/search-by-ingredients", async (req, res) => {
   }
 });
 
-// Main processing endpoint
-app.post("/api/scan", upload.single("image"), async (req, res) => { 
-  try { 
+// ----------Scan endpoints----------
+
+// Scan for verbage/label text
+app.post("/api/scan/verbage", upload.single("image"), async (req, res) => {
+  try {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    console.log("Processing scan for file:", req.file.filename);
+    console.log("Processing verbage scan for file:", req.file.filename);
 
-    // 1. Process image for OCR
-    const processedImage = await sharp(req.file.path).resize(800).toBuffer(); 
+    // Process image for OCR
+    const processedImage = await sharp(req.file.path).resize(800).toBuffer();
     
-    // 2. Perform OCR
-    const ocrResult = await tesseractOCR(processedImage); 
+    // Perform OCR
+    const ocrResult = await hybridOCR(processedImage);
     console.log("OCR Result:", ocrResult);
     
-    // 3. Decode barcode
-    const barcode = await decodeBarcode(req.file.path); 
-    console.log("Barcode:", barcode);
-    
-    // 4. Look up product by barcode or ingredients
+    // Look up product by barcode first (if available)
+    const barcode = await decodeBarcode(req.file.path);
     let product: Product | null = null;
-    let productMatchMethod: 'barcode' | 'ingredients' | null = null;
-    let ingredientMatches: any[] = [];
+    let verbageComparison = null;
+    let discrepancyNotes: any[] = [];
     
     const productRepository = AppDataSource.getRepository(Product);
     
     if (barcode) {
-      // First try to find by barcode
       product = await productRepository.findOne({ 
         where: { barcode: barcode } 
       });
-      if (product) {
-        productMatchMethod = 'barcode';
-        console.log("Found product by barcode:", product.name);
-      }
     }
     
-    // If no product found by barcode, try to match by ingredients
-    if (!product) {
-      const allProducts = await productRepository.find({
-        where: { expected_ingredients: Not(IsNull()) } // Only products with ingredients
-      });
-      // console.log('allProducts',allProducts)
-      
-      ingredientMatches = TextComparisonService.findMatchingProductsByIngredients(
+    // If product found, compare verbage
+    if (product && product.expected_verbage) {
+      verbageComparison = TextComparisonService.compareVerbage(
         ocrResult.text, 
-        allProducts
+        product.expected_verbage
       );
+      console.log("Verbage comparison:", verbageComparison);
       
-      if (ingredientMatches.length > 0) {
-        product = ingredientMatches[0].product;
-        productMatchMethod = 'ingredients';
-        console.log(`Found product by ingredients: ${product!.name} (${ingredientMatches[0].matchScore.toFixed(2)} match)`);
+      if (!verbageComparison.matches) {
+        discrepancyNotes.push({
+          type: "verbage",
+          message: "Text does not match expected verbage",
+          details: verbageComparison.discrepancies
+        });
       }
-    }
-    
-    // 5. Compare OCR text with expected verbage and ingredients
-    let verbageComparison = null;
-    let ingredientsComparison = null;
-    let discrepancyNotes: any[] = [];
-    
-    if (product) {
-      // Compare verbage if available
-      if (product.expected_verbage) {
-        verbageComparison = TextComparisonService.compareVerbage(
-          ocrResult.text, 
-          product.expected_verbage
-        );
-        console.log("Verbage comparison:", verbageComparison);
-        
-        if (!verbageComparison.matches) {
-          discrepancyNotes.push({
-            type: "verbage",
-            message: "Text does not match expected verbage",
-            details: verbageComparison.discrepancies
-          });
-        }
-      }
-      
-      // Compare ingredients if available
-      if (product.expected_ingredients) {
-        ingredientsComparison = TextComparisonService.compareIngredients(
-          ocrResult.text, 
-          product.expected_ingredients
-        );
-        console.log("Ingredients comparison:", ingredientsComparison);
-        
-        if (!ingredientsComparison.matches) {
-          discrepancyNotes.push({
-            type: "ingredients",
-            message: "Ingredients do not match expected ingredients",
-            details: ingredientsComparison.discrepancies
-          });
-        }
-      }
+    } else if (barcode) {
+      discrepancyNotes.push({
+        type: "product",
+        message: "Product not found in database for barcode"
+      });
     } else {
-      if (barcode) {
-        discrepancyNotes.push({
-          type: "product",
-          message: "Product not found in database for barcode"
-        });
-      } else {
-        discrepancyNotes.push({
-          type: "product",
-          message: "No barcode detected and no products match the scanned ingredients"
-        });
-      }
+      discrepancyNotes.push({
+        type: "barcode",
+        message: "No barcode detected"
+      });
     }
     
-    // 6. Image similarity check (if reference image exists)
-    let similarityScore = null;
-    if (product?.reference_image_url) {
-      try {
-        similarityScore = await compareImages(req.file.path, product.reference_image_url);
-        if (similarityScore < 0.85) {
-          discrepancyNotes.push({
-            type: "image",
-            message: "Image does not match reference image",
-            score: similarityScore
-          });
-        }
-      } catch (err) {
-        console.log("Image similarity check failed:", err);
-      }
-    }
-    
-    // 7. Additional quality checks
+    // Quality checks
     if (ocrResult.confidence < 0.8) {
       discrepancyNotes.push({ 
         type: "ocr_quality", 
         message: "Low OCR confidence",
         confidence: ocrResult.confidence
-      }); 
+      });
     }
     
-    if (!barcode) {
-      discrepancyNotes.push({ 
-        type: "barcode", 
-        message: "No barcode detected" 
-      }); 
-    }
-    
-    // 8. Save scan results to database
+    // Save scan results
     const scanRepository = AppDataSource.getRepository(Scan);
     const scan = new Scan();
     scan.product_id = product?.id;
     scan.scan_image_url = req.file.path;
     scan.ocr_text = ocrResult.text;
     scan.barcode_scanned = barcode || undefined;
-    scan.similarity_score = similarityScore || undefined;
     scan.discrepancy_notes = discrepancyNotes;
     
     const savedScan = await scanRepository.save(scan);
-    console.log("Scan saved with ID:", savedScan.id);
     
-    // 9. Return comprehensive results
     const status = discrepancyNotes.length === 0 ? "matched" : "discrepancy";
     
-    res.json({ 
+    res.json({
       status,
       scan_id: savedScan.id,
       product: product ? {
@@ -301,7 +223,174 @@ app.post("/api/scan", upload.single("image"), async (req, res) => {
         name: product.name,
         barcode: product.barcode
       } : null,
-      product_match_method: productMatchMethod,
+      ocr_text: ocrResult.text,
+      ocr_confidence: ocrResult.confidence,
+      barcode: barcode,
+      verbage_comparison: verbageComparison,
+      discrepancy_notes: discrepancyNotes,
+      timestamp: savedScan.created_at
+    });
+    
+  } catch (err) {
+    console.error("Verbage scan processing error:", err);
+    res.status(500).json({
+      error: "Verbage scan processing failed",
+      details: err instanceof Error ? err.message : "Unknown error"
+    });
+  }
+});
+
+// Scan for barcode
+app.post("/api/scan/barcode", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    console.log("Processing barcode scan for file:", req.file.filename);
+
+    // Decode barcode
+    const barcode = await decodeBarcode(req.file.path);
+    console.log("Barcode:", barcode);
+    
+    let product: Product | null = null;
+    let discrepancyNotes: any[] = [];
+    
+    if (barcode) {
+      const productRepository = AppDataSource.getRepository(Product);
+      product = await productRepository.findOne({ 
+        where: { barcode: barcode } 
+      });
+      
+      if (!product) {
+        discrepancyNotes.push({
+          type: "product",
+          message: "Product not found in database for barcode"
+        });
+      }
+    } else {
+      discrepancyNotes.push({
+        type: "barcode",
+        message: "No barcode detected"
+      });
+    }
+    
+    // Save scan results
+    const scanRepository = AppDataSource.getRepository(Scan);
+    const scan = new Scan();
+    scan.product_id = product?.id;
+    scan.scan_image_url = req.file.path;
+    scan.barcode_scanned = barcode || undefined;
+    scan.discrepancy_notes = discrepancyNotes;
+    
+    const savedScan = await scanRepository.save(scan);
+    
+    const status = discrepancyNotes.length === 0 ? "matched" : "discrepancy";
+    
+    res.json({
+      status,
+      scan_id: savedScan.id,
+      product: product ? {
+        id: product.id,
+        name: product.name,
+        barcode: product.barcode
+      } : null,
+      barcode: barcode,
+      discrepancy_notes: discrepancyNotes,
+      timestamp: savedScan.created_at
+    });
+    
+  } catch (err) {
+    console.error("Barcode scan processing error:", err);
+    res.status(500).json({
+      error: "Barcode scan processing failed",
+      details: err instanceof Error ? err.message : "Unknown error"
+    });
+  }
+});
+
+// Scan for ingredients list
+app.post("/api/scan/ingredients", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    console.log("Processing ingredients scan for file:", req.file.filename);
+
+    // Process image for OCR
+    const processedImage = await sharp(req.file.path).resize(800).toBuffer();
+    
+    // Perform OCR
+    const ocrResult = await hybridOCR(processedImage);
+    console.log("OCR Result:", ocrResult);
+    
+    // Find products by ingredients
+    const productRepository = AppDataSource.getRepository(Product);
+    const allProducts = await productRepository.find({
+      where: { expected_ingredients: Not(IsNull()) }
+    });
+    
+    const ingredientMatches = TextComparisonService.findMatchingProductsByIngredients(
+      ocrResult.text, 
+      allProducts
+    );
+    
+    let product: Product | null = null;
+    let ingredientsComparison = null;
+    let discrepancyNotes: any[] = [];
+    
+    if (ingredientMatches.length > 0) {
+      product = ingredientMatches[0].product;
+      ingredientsComparison = TextComparisonService.compareIngredients(
+        ocrResult.text, 
+        product!.expected_ingredients
+      );
+      console.log("Ingredients comparison:", ingredientsComparison);
+      
+      if (!ingredientsComparison.matches) {
+        discrepancyNotes.push({
+          type: "ingredients",
+          message: "Ingredients do not match expected ingredients",
+          details: ingredientsComparison.discrepancies
+        });
+      }
+    } else {
+      discrepancyNotes.push({
+        type: "product",
+        message: "No products match the scanned ingredients"
+      });
+    }
+    
+    // Quality checks
+    if (ocrResult.confidence < 0.8) {
+      discrepancyNotes.push({ 
+        type: "ocr_quality", 
+        message: "Low OCR confidence",
+        confidence: ocrResult.confidence
+      });
+    }
+    
+    // Save scan results
+    const scanRepository = AppDataSource.getRepository(Scan);
+    const scan = new Scan();
+    scan.product_id = product?.id;
+    scan.scan_image_url = req.file.path;
+    scan.ocr_text = ocrResult.text;
+    scan.discrepancy_notes = discrepancyNotes;
+    
+    const savedScan = await scanRepository.save(scan);
+    
+    const status = discrepancyNotes.length === 0 ? "matched" : "discrepancy";
+    
+    res.json({
+      status,
+      scan_id: savedScan.id,
+      product: product ? {
+        id: product.id,
+        name: product.name,
+        barcode: product.barcode
+      } : null,
       alternative_matches: ingredientMatches.length > 1 ? 
         ingredientMatches.slice(1, 4).map(match => ({
           product: {
@@ -313,23 +402,20 @@ app.post("/api/scan", upload.single("image"), async (req, res) => {
           matched_ingredients: match.matchedIngredients,
           missing_ingredients: match.missingIngredients
         })) : [],
-      ocr_text: ocrResult.text, 
-      ocr_confidence: ocrResult.confidence, 
-      barcode: barcode, 
-      similarity_score: similarityScore,
-      verbage_comparison: verbageComparison,
+      ocr_text: ocrResult.text,
+      ocr_confidence: ocrResult.confidence,
       ingredients_comparison: ingredientsComparison,
       discrepancy_notes: discrepancyNotes,
       timestamp: savedScan.created_at
-    }); 
+    });
     
-  } catch (err) { 
-    console.error("Scan processing error:", err); 
-    res.status(500).json({ 
-      error: "Processing failed", 
-      details: err instanceof Error ? err.message : "Unknown error" 
-    }); 
-  } 
+  } catch (err) {
+    console.error("Ingredients scan processing error:", err);
+    res.status(500).json({
+      error: "Ingredients scan processing failed",
+      details: err instanceof Error ? err.message : "Unknown error"
+    });
+  }
 });
 
 // 404 handler
@@ -349,10 +435,13 @@ const startServer = async () => {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`Health check: http://localhost:${PORT}/health`);
-      console.log(`Users API: http://localhost:${PORT}/api/users`);
+      console.log(`Users API: http://localhost:${PORT}/api/auth`);
       console.log(`Products API: http://localhost:${PORT}/api/products`);
       console.log(`Search by ingredients: http://localhost:${PORT}/api/products/search-by-ingredients`);
-      console.log(`Scan endpoint: http://localhost:${PORT}/scan`);
+      console.log(`Scan endpoints:`);
+      console.log(`  - Verbage scan: http://localhost:${PORT}/api/scan/verbage`);
+      console.log(`  - Barcode scan: http://localhost:${PORT}/api/scan/barcode`);
+      console.log(`  - Ingredients scan: http://localhost:${PORT}/api/scan/ingredients`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);

@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@google-cloud/vision": "^5.3.3",
     "@techstark/opencv-js": "^4.11.0-release.1",
     "@zxing/library": "^0.21.3",
     "bcryptjs": "^3.0.2",
@@ -22,18 +23,11 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "multer": "^2.0.2",
-    "opencv4nodejs": "^5.6.0",
     "pg": "^8.16.3",
     "sharp": "^0.34.3",
     "tesseract.js": "^6.0.1",
     "tslib": "^2.8.1",
     "typeorm": "^0.3.26"
-  },
-  "opencv4nodejs": {
-    "disableAutoBuild": 1,
-    "opencvIncludeDir": "C:\\tools\\opencv\\build\\include",
-    "opencvLibDir": "C:\\tools\\opencv\\build\\x64\\vc16\\lib",
-    "opencvBinDir": "C:\\tools\\opencv\\build\\x64\\vc16\\bin"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
