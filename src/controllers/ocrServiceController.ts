@@ -33,16 +33,23 @@ async function googleVisionOCR(imageBuffer: Buffer) {
         for (const block of page.blocks ?? []) {
           for (const paragraph of block.paragraphs ?? []) {
             for (const word of paragraph.words ?? []) {
-              confidences.push(word.confidence ?? 0);
+              if (word.confidence && word.confidence > 0) {
+                confidences.push(word.confidence);
+              }
             }
           }
         }
       }
     }
 
-    const avgConfidence = confidences.length
+    // Calculate average confidence, default to 0.8 if no confidence data
+    const avgConfidence = confidences.length > 0
       ? confidences.reduce((a, b) => a + b, 0) / confidences.length
-      : 0.95;
+      : 0.8; // Default confidence when no word-level data available
+
+    console.log(`Google Vision OCR - Found ${confidences.length} words with confidence data`);
+    console.log(`Average confidence: ${avgConfidence}`);
+    console.log(`Text length: ${fullText.length}`);
 
     return { 
       text: fullText, 
@@ -65,7 +72,7 @@ async function googleVisionOCR(imageBuffer: Buffer) {
 async function hybridOCR(imageBuffer: Buffer) {
   let ocrResult = await tesseractOCR(imageBuffer);
 
-  if (ocrResult.confidence < 0.8 || ocrResult.text.length < 10) {
+  if (ocrResult.confidence < 70 || ocrResult.text.length < 10) {
     console.log("Low confidence — using Google Vision fallback...");
     ocrResult = await googleVisionOCR(imageBuffer) as any;
   }
